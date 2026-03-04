@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Pen - Gesture Drawing App</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            background: linear-gradient(135deg, #050301 0%, #1a1410 100%);
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #container {
+            position: relative;
+            width: 100%;
+            height: calc(100% - 60px);
+            overflow: hidden;
+        }
+
+        video {
+            display: none;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #controls {
+            width: 100%;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.7);
+            border-top: 2px solid #F5D061;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            color: #F5D061;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #888;
+            transition: background 0.3s;
+        }
+
+        .status-dot.active {
+            background: #00FF00;
+            box-shadow: 0 0 10px #00FF00;
+        }
+
+        .status-dot.drawing {
+            background: #F5D061;
+            box-shadow: 0 0 10px #F5D061;
+        }
+
+        button {
+            background: transparent;
+            border: 2px solid #F5D061;
+            color: #F5D061;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #F5D061;
+            color: #050301;
+            transform: scale(1.05);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        #help {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #F5D061;
+            color: #F5D061;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            max-width: 300px;
+            line-height: 1.6;
+            display: none;
+        }
+
+        #help.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .keyboard-hint {
+            color: #888;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        #debug-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #F5D061;
+            color: #F5D061;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <video id="vid"></video>
+        <canvas id="c"></canvas>
+        <div id="debug-info">
+            <div>FPS: <span id="fps">0</span></div>
+            <div>Hand: <span id="hand-status">❌</span></div>
+            <div>Mode: <span id="draw-mode">Ready</span></div>
+        </div>
+        <div id="help">
+            <strong>🖋️ Hand Pen Controls</strong>
+            <hr style="margin: 8px 0; border: none; border-top: 1px solid #F5D061;">
+            <div style="margin-bottom: 8px;">
+                <strong style="color: #F5D061;">SHIFT</strong> - Hold to draw
+            </div>
+            <div style="margin-bottom: 8px;">
+                <strong style="color: #F5D061;">SPACE</strong> - Clear canvas
+            </div>
+            <div style="margin-bottom: 8px;">
+                <strong style="color: #F5D061;">H</strong> - Toggle help
+            </div>
+            <div style="margin-bottom: 8px;">
+                <strong style="color: #F5D061;">D</strong> - Toggle debug info
+            </div>
+            <div class="keyboard-hint">💡 Move your finger slowly for precise drawing</div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <div class="control-item">
+                <span class="status-dot" id="hand-indicator"></span>
+                <span>Hand Detection</span>
+            </div>
+            <div class="control-item">
+                <span class="status-dot" id="draw-indicator"></span>
+                <span>Drawing</span>
+            </div>
+            <div class="control-item">
+                FPS: <span id="fps-display">0</span>
+            </div>
+        </div>
+        <div class="control-group">
+            <button id="help-btn">? Help</button>
+            <button id="clear-btn">Clear (SPACE)</button>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            smoothing: 0.45,        // 45% interpolation (higher = smoother)
+            canvasOpacity: 0.85,    // Canvas fade effect
+            penColor: '#F5D061',    // Golden color
+            penGlow: '#F5D061',
+            penWidth: 6,
+            penRadius: 6,
+            shadowBlur: 15,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+        };
+
+        // DOM Elements
+        const vid = document.getElementById('vid');
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        const helpBtn = document.getElementById('help-btn');
+        const helpPanel = document.getElementById('help');
+        const clearBtn = document.getElementById('clear-btn');
+        const debugInfo = document.getElementById('debug-info');
+        const fpsDisplay = document.getElementById('fps-display');
+        const handIndicator = document.getElementById('hand-indicator');
+        const drawIndicator = document.getElementById('draw-indicator');
+        const handStatus = document.getElementById('hand-status');
+        const drawMode = document.getElementById('draw-mode');
+
+        // State
+        let strokes = [];       // Array of stroke arrays
+        let currentStroke = [];
+        let isShiftPressed = false;
+        let isDrawing = false;
+        let smoothX = null;
+        let smoothY = null;
+
+        // FPS tracking
+        let frameCount = 0;
+        let lastFpsTime = Date.now();
+        let fps = 0;
+
+        // Keyboard controls
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Shift') {
+                isShiftPressed = true;
+            } else if (e.code === 'Space') {
+                e.preventDefault();
+                clearCanvas();
+            } else if (e.key === 'h' || e.key === 'H') {
+                helpPanel.classList.toggle('show');
+            } else if (e.key === 'd' || e.key === 'D') {
+                debugInfo.style.display = debugInfo.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') {
+                isShiftPressed = false;
+                isDrawing = false;
+                updateDrawMode();
+            }
+        });
+
+        // Button controls
+        helpBtn.addEventListener('click', () => {
+            helpPanel.classList.toggle('show');
+        });
+
+        clearBtn.addEventListener('click', clearCanvas);
+
+        function clearCanvas() {
+            strokes = [];
+            currentStroke = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            console.log('🗑️  Canvas cleared');
+        }
+
+        function updateFPS() {
+            frameCount++;
+            const now = Date.now();
+            const elapsed = now - lastFpsTime;
+
+            if (elapsed >= 1000) {
+                fps = Math.round((frameCount * 1000) / elapsed);
+                frameCount = 0;
+                lastFpsTime = now;
+                fpsDisplay.textContent = fps;
+                document.getElementById('fps').textContent = fps;
+            }
+        }
+
+        function updateDrawMode() {
+            const status = isDrawing ? '✏️ Drawing' : '👆 Ready';
+            drawMode.textContent = status;
+            drawIndicator.classList.toggle('drawing', isDrawing);
+        }
+
+        function drawCanvas(image, landmarks) {
+            // Set canvas size
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 60;
+
+            // Draw camera feed
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            // Apply fade effect
+            ctx.fillStyle = `rgba(10, 6, 2, ${CONFIG.canvasOpacity})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Configure pen style
+            ctx.shadowColor = CONFIG.penGlow;
+            ctx.shadowBlur = CONFIG.shadowBlur;
+            ctx.strokeStyle = CONFIG.penColor;
+            ctx.lineWidth = CONFIG.penWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Draw all strokes
+            for (let i = 0; i < strokes.length; i++) {
+                if (strokes[i].length < 2) continue;
+
+                ctx.beginPath();
+                ctx.moveTo(strokes[i][0].x, strokes[i][0].y);
+                for (let j = 1; j < strokes[i].length; j++) {
+                    ctx.lineTo(strokes[i][j].x, strokes[i][j].y);
+                }
+                ctx.stroke();
+            }
+
+            // Process landmarks if hand detected
+            if (landmarks && landmarks.length > 0) {
+                const lm = landmarks[0];
+                
+                // Update hand indicator
+                handIndicator.classList.add('active');
+                handStatus.textContent = '✅';
+
+                // Draw hand skeleton
+                drawConnectors(ctx, lm, HAND_CONNECTIONS, {
+                    color: 'rgba(245, 208, 97, 0.3)',
+                    lineWidth: 2
+                });
+                drawLandmarks(ctx, lm, {
+                    color: '#FFFFFF',
+                    lineWidth: 1,
+                    radius: 2
+                });
+
+                // Process index finger (landmark 8)
+                const indexFinger = lm[8];
+                const rawX = indexFinger.x * canvas.width;
+                const rawY = indexFinger.y * canvas.height;
+
+                // Initialize smoothing
+                if (smoothX === null) {
+                    smoothX = rawX;
+                    smoothY = rawY;
+                } else {
+                    // Apply exponential smoothing
+                    smoothX += (rawX - smoothX) * CONFIG.smoothing;
+                    smoothY += (rawY - smoothY) * CONFIG.smoothing;
+                }
+
+                // Draw cursor indicator
+                ctx.beginPath();
+                ctx.arc(smoothX, smoothY, CONFIG.penRadius, 0, 2 * Math.PI);
+                ctx.fillStyle = isShiftPressed
+                    ? '#FFFFFF'
+                    : `rgba(245, 208, 97, 0.4)`;
+                ctx.fill();
+
+                // Handle drawing
+                if (isShiftPressed) {
+                    if (!isDrawing) {
+                        isDrawing = true;
+                        currentStroke = [];
+                        strokes.push(currentStroke);
+                        updateDrawMode();
+                    }
+                    currentStroke.push({ x: smoothX, y: smoothY });
+                } else {
+                    isDrawing = false;
+                    updateDrawMode();
+                }
+            } else {
+                // No hand detected
+                handIndicator.classList.remove('active');
+                handStatus.textContent = '❌';
+                isDrawing = false;
+                updateDrawMode();
+                smoothX = null;
+                smoothY = null;
+            }
+
+            updateFPS();
+        }
+
+        // Initialize MediaPipe Hands
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: CONFIG.minDetectionConfidence,
+            minTrackingConfidence: CONFIG.minTrackingConfidence
+        });
+
+        hands.onResults((results) => {
+            drawCanvas(results.image, results.multiHandLandmarks);
+        });
+
+        // Initialize camera
+        const camera = new Camera(vid, {
+            onFrame: async () => {
+                await hands.send({ image: vid });
+            },
+            width: 1280,
+            height: 720
+        });
+
+        camera.start();
+
+        console.log('%c✅ Hand Pen Initialized', 'color: #F5D061; font-size: 14px; font-weight: bold;');
+        console.log('%cPress H for help', 'color: #888;');
+    </script>
+</body>
+</html>
