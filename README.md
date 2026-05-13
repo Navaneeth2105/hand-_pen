@@ -9,6 +9,7 @@ A gesture-controlled virtual drawing application using hand tracking. Draw on yo
 - ⌨️ Keyboard controls for drawing/erasing
 - 🎬 Real-time hand pose visualization
 - 📱 Available in both Python and Web versions
+- 💫 Also used to have a fun to get relax with the tech
 
 ---
 
